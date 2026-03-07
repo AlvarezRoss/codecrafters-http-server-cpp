@@ -74,6 +74,7 @@ int main(int argc, char **argv) {
     std::cout<<"client connected\n";
     std::string client_message(DEF_BUFFERLEN,'\0');
     rcvResult = recv(client_socket,&client_message[0],DEF_BUFFERLEN,0);
+    client_message.resize(rcvResult);
     if (rcvResult < 0)
     {
       std::cout<<"recv error\n";
@@ -87,6 +88,12 @@ int main(int argc, char **argv) {
     {
       std::string_view ok = "HTTP/1.1 200 OK\r\n\r\n";
       send(client_socket,ok.data(),ok.length(),0);
+    }
+    else if(url.find("/echo/") == 0)
+    {
+      std::string str = url.substr(6);
+      std::string response = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: "+ std::to_string(str.size())+"\r\n\r\n" + str;
+      send(client_socket,response.data(),response.length(),0);
     }
     else
     {
