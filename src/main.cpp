@@ -9,8 +9,11 @@
 #include <netdb.h>
 
 #define DEF_BUFFERLEN 512
+#define ECHO_COMMAND_LEN 6
+#define USER_AGENT_LEN 12
 
 std::string getURL(std::string_view request);
+std::string HandleUserAgent(std::string_view request);
 
 int main(int argc, char **argv) {
   // Flush after every std::cout / std::cerr
@@ -91,8 +94,14 @@ int main(int argc, char **argv) {
     }
     else if(url.find("/echo/") == 0)
     {
-      std::string str = url.substr(6);
+      std::string str = url.substr(ECHO_COMMAND_LEN);
       std::string response = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: "+ std::to_string(str.size())+"\r\n\r\n" + str;
+      send(client_socket,response.data(),response.length(),0);
+    }
+    else if(url.find("/user-agent") == 0)
+    {
+      std::string userAgent = HandleUserAgent(client_message);
+      std::string response = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: " + std::to_string(userAgent.size())+"\r\n\r\n" + userAgent;
       send(client_socket,response.data(),response.length(),0);
     }
     else
@@ -133,6 +142,19 @@ std::string getURL(std::string_view request)
   }
   return url;
 
+}
+
+std::string HandleUserAgent(std::string_view request)
+{
+
+  int request_len = request.length();
+  int begin = request.find("User-Agent:");
+  std::string_view body = request.substr(begin,request_len - begin);
+  int end = body.find("\r\n");
+  std::string userAgentBody = "";
+  userAgentBody = body.substr(USER_AGENT_LEN,end - USER_AGENT_LEN);
+
+  return userAgentBody;
 }
   
 
