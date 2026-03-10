@@ -7,6 +7,7 @@
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <netdb.h>
+#include <thread>
 
 #define DEF_BUFFERLEN 512
 #define ECHO_COMMAND_LEN 6
@@ -14,6 +15,7 @@
 
 std::string getURL(std::string_view request);
 std::string HandleUserAgent(std::string_view request);
+int ClientConnection(int* client_socket, int* server_fd);
 
 int main(int argc, char **argv) {
   // Flush after every std::cout / std::cerr
@@ -58,59 +60,35 @@ int main(int argc, char **argv) {
     std::cerr << "listen failed\n";
     return 1;
   }
-  
-  struct sockaddr_in client_addr;
-  int client_addr_len = sizeof(client_addr);
-  
-  std::cout << "Waiting for a client to connect...\n";
-  
-  int client_socket = accept(server_fd, (struct sockaddr *) &client_addr, (socklen_t *) &client_addr_len);
-  if (client_socket < 0)
+  int (*ClientFucntionPtr)(int*,int*) = &ClientConnection; // Function Pointer to be used in the thread as a callback
+  while(true)
   {
-    std::cout<<"Could not connect with client\n";
-    close(server_fd);
-    return 1;
-  }
-  else
-  {
-    ssize_t rcvResult;
-    std::cout<<"client connected\n";
-    std::string client_message(DEF_BUFFERLEN,'\0');
-    rcvResult = recv(client_socket,&client_message[0],DEF_BUFFERLEN,0);
-    client_message.resize(rcvResult);
-    if (rcvResult < 0)
+      struct sockaddr_in client_addr;
+    int client_addr_len = sizeof(client_addr);
+  
+    std::cout << "Waiting for a client to connect...\n";
+  
+    int client_socket = accept(server_fd, (struct sockaddr *) &client_addr, (socklen_t *) &client_addr_len);
+    if (client_socket < 0)
     {
-      std::cout<<"recv error\n";
+      std::cout<<"Could not connect with client\n";
       close(server_fd);
-      close(client_socket);
       return 1;
-    }
-
-    std::string url = getURL(client_message);
-    if (url == "/")
-    {
-      std::string_view ok = "HTTP/1.1 200 OK\r\n\r\n";
-      send(client_socket,ok.data(),ok.length(),0);
-    }
-    else if(url.find("/echo/") == 0)
-    {
-      std::string str = url.substr(ECHO_COMMAND_LEN);
-      std::string response = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: "+ std::to_string(str.size())+"\r\n\r\n" + str;
-      send(client_socket,response.data(),response.length(),0);
-    }
-    else if(url.find("/user-agent") == 0)
-    {
-      std::string userAgent = HandleUserAgent(client_message);
-      std::string response = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: " + std::to_string(userAgent.size())+"\r\n\r\n" + userAgent;
-      send(client_socket,response.data(),response.length(),0);
     }
     else
     {
-      std::string_view notFound = "HTTP/1.1 404 Not Found\r\n\r\n";
-      send(client_socket,notFound.data(),notFound.length(),0);
+      std::thread newCLientThread(ClientFucntionPtr,&client_socket,&server_fd);
+      newCLientThread.detach();
+      // if (ClientConnection(&client_socket,&server_fd) != 0)
+      // {
+        // std::cout<<"Error on client handle\n";
+        // close(server_fd);
+        // close(client_socket);
+        // return 1;
+      // }
     }
-
   }
+
 
 
   
@@ -155,6 +133,46 @@ std::string HandleUserAgent(std::string_view request)
   userAgentBody = body.substr(USER_AGENT_LEN,end - USER_AGENT_LEN);
 
   return userAgentBody;
+}
+
+int ClientConnection(int* client_socket, int* server_fd)
+{
+  ssize_t rcvResult;
+    std::cout<<"client connected\n";
+    std::string client_message(DEF_BUFFERLEN,'\0');
+    rcvResult = recv(*client_socket,&client_message[0],DEF_BUFFERLEN,0);
+    client_message.resize(rcvResult);
+    if (rcvResult < 0)
+    {
+      std::cout<<"recv error\n";
+      close(*server_fd);
+      close(*client_socket);
+      return 1;
+    }
+
+    std::string url = getURL(client_message);
+    if (url == "/")
+    {
+      std::string_view ok = "HTTP/1.1 200 OK\r\n\r\n";
+      send(*client_socket,ok.data(),ok.length(),0);
+    }
+    else if(url.find("/echo/") == 0)
+    {
+      std::string str = url.substr(ECHO_COMMAND_LEN);
+      std::string response = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: "+ std::to_string(str.size())+"\r\n\r\n" + str;
+      send(*client_socket,response.data(),response.length(),0);
+    }
+    else if(url.find("/user-agent") == 0)
+    {
+      std::string userAgent = HandleUserAgent(client_message);
+      std::string response = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: " + std::to_string(userAgent.size())+"\r\n\r\n" + userAgent;
+      send(*client_socket,response.data(),response.length(),0);
+    }
+    else
+    {
+      std::string_view notFound = "HTTP/1.1 404 Not Found\r\n\r\n";
+      send(*client_socket,notFound.data(),notFound.length(),0);
+    }
 }
   
 
