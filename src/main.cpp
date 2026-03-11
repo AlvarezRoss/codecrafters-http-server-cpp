@@ -8,14 +8,21 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <thread>
+#include <filesystem>
+#include <fstream>
+#include <sstream>
+#include <cstring>
 
 #define DEF_BUFFERLEN 1024
 #define ECHO_COMMAND_LEN 6
 #define USER_AGENT_LEN 12
+#define FILES_COMMAND_LEN 7
 
 std::string getURL(std::string_view request);
 std::string HandleUserAgent(std::string_view request);
-int ClientConnection(int client_socket, int server_fd);
+int ClientConnection(int client_socket, int server_fd, int argc, char **argv);
+int GetDirectory(std::string* directory, int argc, char** argv);
+int HandleFileRquest(std::filesystem::path* path, std::ifstream* file, std::stringstream* buffer);
 
 int main(int argc, char **argv) {
   // Flush after every std::cout / std::cerr
@@ -25,7 +32,6 @@ int main(int argc, char **argv) {
   // You can use print statements as follows for debugging, they'll be visible when running tests.
   std::cout << "Logs from your program will appear here!\n";
 
-  // TODO: Uncomment the code below to pass the first stage
   //Socket takes 3 arguments: domain, type of socket and a protocol and it creates an unbound socket in the communications domain
   // AF_INET is the domain set for IPv4 addresses
   // SOCK_STREAM is the type of socket used for TCP
@@ -60,7 +66,7 @@ int main(int argc, char **argv) {
     std::cerr << "listen failed\n";
     return 1;
   }
-  int (*ClientFucntionPtr)(int,int) = &ClientConnection; // Function Pointer to be used in the thread as a callback
+  int (*ClientFucntionPtr)(int,int,int,char**) = &ClientConnection; // Function Pointer to be used in the thread as a callback
   while(true)
   {
       struct sockaddr_in client_addr;
@@ -77,16 +83,8 @@ int main(int argc, char **argv) {
     }
     else
     {
-      std::thread newCLientThread(ClientFucntionPtr,client_socket,server_fd);
+      std::thread newCLientThread(ClientFucntionPtr,client_socket,server_fd,argc,argv);
       newCLientThread.detach();
-      //ClientConnection(&client_socket,&server_fd);
-      // if (ClientConnection(&client_socket,&server_fd) != 0)
-      // {
-        // std::cout<<"Error on client handle\n";
-        // close(server_fd);
-        // close(client_socket);
-        // return 1;
-      // }
     }
   }
 
@@ -136,7 +134,37 @@ std::string HandleUserAgent(std::string_view request)
   return userAgentBody;
 }
 
-int ClientConnection(int client_socket, int server_fd)
+int HandleFileRquest(std::filesystem::path* path, std::ifstream* file, std::stringstream* buffer)
+{
+  file->open(path->c_str(),std::ios::binary);
+
+  if(file->fail())
+  {
+    std::cout<<"file open failed\n";
+    return 1;
+  }
+  
+  *buffer << file->rdbuf();
+  file->close();
+  return 0;
+}
+
+int GetDirectory(std::string* directory, int argc, char** argv)
+{
+  if(argc < 3)
+  {
+    return 1;
+  }
+  if(strcmp(argv[2],"--directory"))
+  {
+    *directory = argv[2];
+    return 0;
+  }
+  return 0;
+}
+
+
+int ClientConnection(int client_socket, int server_fd, int argc, char** argv)
 {
   ssize_t rcvResult;
     std::cout<<"client connected\n";
@@ -172,6 +200,37 @@ int ClientConnection(int client_socket, int server_fd)
       send(client_socket,response.data(),response.length(),0);
       return 0;
     }
+    else if (url.find("/files/") == 0)
+    {
+      
+      std::ifstream file;
+      std::stringstream buffer;
+      std::string directory;
+      if (GetDirectory(&directory,argc,argv) != 0)
+      {
+        std::cout<<"Could not get directory\n";
+        std::string_view notFound = "HTTP/1.1 404 Not Found\r\n\r\n";
+        send(client_socket,notFound.data(),notFound.length(),0);
+        return 0;
+      }
+      std::filesystem::path path = directory;
+      path /= url.substr(FILES_COMMAND_LEN);
+      if(HandleFileRquest(&path,&file,&buffer) != 0)
+      {
+        std::string_view notFound = "HTTP/1.1 404 Not Found\r\n\r\n";
+        send(client_socket,notFound.data(),notFound.length(),0);
+        return 0;
+      }
+      else
+      {
+        std::string file_content = buffer.str();
+        // HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: 13\r\n\r\nHello, World!
+        std::string response = "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: " + std::to_string(file_content.size())
+                                +"\r\n\r\n"+file_content;
+        send(client_socket,response.data(),response.length(),0);
+        return 0;
+      }
+    }
     else
     {
       std::string_view notFound = "HTTP/1.1 404 Not Found\r\n\r\n";
@@ -179,5 +238,8 @@ int ClientConnection(int client_socket, int server_fd)
       return 0;
     }
 }
+
+
+
   
 
