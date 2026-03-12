@@ -1,28 +1,8 @@
-#include <iostream>
-#include <cstdlib>
-#include <string>
-#include <cstring>
-#include <unistd.h>
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <arpa/inet.h>
-#include <netdb.h>
-#include <thread>
-#include <filesystem>
-#include <fstream>
-#include <sstream>
-#include <cstring>
 
-#define DEF_BUFFERLEN 1024
-#define ECHO_COMMAND_LEN 6
-#define USER_AGENT_LEN 12
-#define FILES_COMMAND_LEN 7
+#include "helper.hpp"
 
-std::string getURL(std::string_view request);
-std::string HandleUserAgent(std::string_view request);
 int ClientConnection(int client_socket, int server_fd, int argc, char **argv);
-int GetDirectory(std::string* directory, int argc, char** argv);
-int HandleFileRquest(std::filesystem::path* path, std::ifstream* file, std::stringstream* buffer);
+
 
 int main(int argc, char **argv) {
   // Flush after every std::cout / std::cerr
@@ -87,79 +67,9 @@ int main(int argc, char **argv) {
       newCLientThread.detach();
     }
   }
-
-
-
   
   close(server_fd);
 
-  return 0;
-}
-
-
-
-std::string getURL(std::string_view request)
-{
-  bool foundPath = false;
-  std::string url = "";
-  int begin = 0;
-  for(int i = 0; i < request.length(); i++)
-  {
-    if (request[i] == ' ' && !foundPath)
-    {
-      foundPath = true;
-      begin = i+1;
-      continue;
-    }
-    else if (request[i] == ' ' && foundPath)
-    {
-      url = request.substr(begin, i-begin);
-      break;
-    }
-  }
-  return url;
-
-}
-
-std::string HandleUserAgent(std::string_view request)
-{
-
-  int request_len = request.length();
-  int begin = request.find("User-Agent:");
-  std::string_view body = request.substr(begin,request_len - begin);
-  int end = body.find("\r\n");
-  std::string userAgentBody = "";
-  userAgentBody = body.substr(USER_AGENT_LEN,end - USER_AGENT_LEN);
-
-  return userAgentBody;
-}
-
-int HandleFileRquest(std::filesystem::path* path, std::ifstream* file, std::stringstream* buffer)
-{
-  file->open(path->c_str(),std::ios::binary);
-
-  if(file->fail())
-  {
-    std::cout<<"file open failed\n";
-    return 1;
-  }
-  
-  *buffer << file->rdbuf();
-  file->close();
-  return 0;
-}
-
-int GetDirectory(std::string* directory, int argc, char** argv)
-{
-  if(argc < 3)
-  {
-    return 1;
-  }
-  if(strcmp(argv[2],"--directory"))
-  {
-    *directory = argv[2];
-    return 0;
-  }
   return 0;
 }
 
@@ -214,21 +124,14 @@ int ClientConnection(int client_socket, int server_fd, int argc, char** argv)
         return 0;
       }
       std::filesystem::path path = directory;
-      path /= url.substr(FILES_COMMAND_LEN);
-      if(HandleFileRquest(&path,&file,&buffer) != 0)
+      if (client_message.find("POST") != 0)
       {
-        std::string_view notFound = "HTTP/1.1 404 Not Found\r\n\r\n";
-        send(client_socket,notFound.data(),notFound.length(),0);
+        HandleGETFileRequest(client_socket,&path,&file,&buffer,&url);
         return 0;
       }
       else
       {
-        std::string file_content = buffer.str();
-        // HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: 13\r\n\r\nHello, World!
-        std::string response = "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: " + std::to_string(file_content.size())
-                                +"\r\n\r\n"+file_content;
-        send(client_socket,response.data(),response.length(),0);
-        return 0;
+        HandlePOSTFileRequest(client_socket,&path,&file,&client_message,&url);
       }
     }
     else
